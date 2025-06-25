@@ -126,15 +126,18 @@ CREATE TABLE Vouchers (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
 CREATE TABLE DiaChiNguoiDung (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ma_nguoi_dung INT,
+    ten_nguoi_nhan VARCHAR(100),
     so_dien_thoai VARCHAR(15),
     dia_chi TEXT,
     mac_dinh BOOLEAN DEFAULT FALSE,
     ngay_tao DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE CASCADE
 );
+
 
 ALTER TABLE GioHang ADD COLUMN duong_dan_anh VARCHAR(255);
 
