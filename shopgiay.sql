@@ -60,11 +60,24 @@ CREATE TABLE GioHang (
 CREATE TABLE DonHang (
     ma_don_hang INT AUTO_INCREMENT PRIMARY KEY,
     ma_nguoi_dung INT,
-    dia_chi_giao_hang VARCHAR(255),
+    ten_nguoi_nhan VARCHAR(100),       
+    so_dien_thoai VARCHAR(15),        
+    dia_chi_giao_hang VARCHAR(255),    
     tong_tien DECIMAL(15, 2),
     trang_thai VARCHAR(20),
     ngay_tao DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE SET NULL
+    voucher_id INT DEFAULT NULL,
+    phuong_thuc_id INT DEFAULT NULL,  
+    FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE SET NULL,
+    FOREIGN KEY (voucher_id) REFERENCES voucher(id) ON DELETE SET NULL,
+    FOREIGN KEY (phuong_thuc_id) REFERENCES PhuongThucVanChuyen(id) ON DELETE SET NULL
+);
+
+CREATE TABLE PhuongThucVanChuyen (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ten_phuong_thuc VARCHAR(100) NOT NULL,
+    chi_phi DECIMAL(10,2) DEFAULT 0,
+    trang_thai ENUM('hoat_dong', 'tam_ngung') DEFAULT 'hoat_dong'
 );
 
 -- Bảng ChiTietDonHang
@@ -112,20 +125,27 @@ CREATE TABLE NguoiDung (
     ngay_tao DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE Vouchers (
+CREATE TABLE voucher (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ma_voucher VARCHAR(50) UNIQUE,
-    loai ENUM('ship', 'order') NOT NULL,          -- Loại: giảm ship hay giảm đơn hàng
-    kieu_giam ENUM('phan_tram', 'tien_mat') NOT NULL,  -- Giảm theo % hay theo số tiền
-    gia_tri DECIMAL(10,2) NOT NULL,               -- Giá trị giảm
-    dieu_kien_ap_dung DECIMAL(10,2) DEFAULT 0,    -- Giá trị đơn hàng tối thiểu để áp dụng
-    so_luong INT DEFAULT 1,                       -- Số lần còn lại được sử dụng
+    mo_ta_hien_thi VARCHAR(255),
+    loai ENUM('ship', 'order') NOT NULL,
+    kieu_giam ENUM('phan_tram', 'tien_mat') NOT NULL,
+    gia_tri DECIMAL(10,2) NOT NULL,
+    dieu_kien_ap_dung DECIMAL(10,2) DEFAULT 0,
+    so_luong INT DEFAULT 1,
     ngay_bat_dau DATETIME,
     ngay_ket_thuc DATETIME,
-    mo_ta TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    hinh_anh VARCHAR(255),
+    trang_thai ENUM('hoat_dong', 'tam_ngung', 'het_han') DEFAULT 'hoat_dong',
+    ngay_tao DATETIME DEFAULT CURRENT_TIMESTAMP,
+    nguoi_tao INT,
+    ngay_cap_nhat DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (nguoi_tao) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE SET NULL
 );
+
+
+
 
 CREATE TABLE DiaChiNguoiDung (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -144,6 +164,5 @@ ALTER TABLE GioHang ADD COLUMN duong_dan_anh VARCHAR(255);
 ALTER TABLE DonHang
 ADD COLUMN voucher_id INT DEFAULT NULL,
 ADD CONSTRAINT fk_donhang_voucher FOREIGN KEY (voucher_id) REFERENCES Vouchers(id) ON DELETE SET NULL;
-ALTER TABLE Vouchers
-ADD COLUMN trang_thai ENUM('hoat_dong', 'tam_ngung', 'het_han') DEFAULT 'hoat_dong';
+
 
