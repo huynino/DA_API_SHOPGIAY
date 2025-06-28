@@ -834,6 +834,35 @@ def them_user(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
     
+# @app.delete("/xoaUser")
+# def xoa_user(ma_nguoi_dung: int = Query(..., description="Mã người dùng cần xóa")):
+#     try:
+#         conn = db.connect_to_database()
+#         if not isinstance(conn, Error):
+#             cursor = conn.cursor()
+
+#             # Kiểm tra người dùng tồn tại không
+#             check_sql = "SELECT * FROM NguoiDung WHERE ma_nguoi_dung = %s"
+#             cursor.execute(check_sql, (ma_nguoi_dung,))
+#             if not cursor.fetchone():
+#                 cursor.close()
+#                 conn.close()
+#                 return {"message": f"Không tìm thấy người dùng với mã {ma_nguoi_dung}."}
+
+#             # Xóa người dùng
+#             delete_sql = "DELETE FROM NguoiDung WHERE ma_nguoi_dung = %s"
+#             cursor.execute(delete_sql, (ma_nguoi_dung,))
+#             conn.commit()
+
+#             cursor.close()
+#             conn.close()
+
+#             return {"message": f"Đã xóa người dùng có mã {ma_nguoi_dung} thành công."}
+#         else:
+#             raise HTTPException(status_code=500, detail="Lỗi kết nối cơ sở dữ liệu")
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
 @app.delete("/xoaUser")
 def xoa_user(ma_nguoi_dung: int = Query(..., description="Mã người dùng cần xóa")):
     try:
@@ -841,15 +870,18 @@ def xoa_user(ma_nguoi_dung: int = Query(..., description="Mã người dùng c�
         if not isinstance(conn, Error):
             cursor = conn.cursor()
 
-            # Kiểm tra người dùng tồn tại không
+            # Kiểm tra người dùng tồn tại
             check_sql = "SELECT * FROM NguoiDung WHERE ma_nguoi_dung = %s"
             cursor.execute(check_sql, (ma_nguoi_dung,))
             if not cursor.fetchone():
                 cursor.close()
                 conn.close()
-                return {"message": f"Không tìm thấy người dùng với mã {ma_nguoi_dung}."}
+                return {
+                    "success": False,
+                    "message": f"Không tìm thấy người dùng với mã {ma_nguoi_dung}."
+                }
 
-            # Xóa người dùng
+            # Thực hiện xóa
             delete_sql = "DELETE FROM NguoiDung WHERE ma_nguoi_dung = %s"
             cursor.execute(delete_sql, (ma_nguoi_dung,))
             conn.commit()
@@ -857,13 +889,16 @@ def xoa_user(ma_nguoi_dung: int = Query(..., description="Mã người dùng c�
             cursor.close()
             conn.close()
 
-            return {"message": f"Đã xóa người dùng có mã {ma_nguoi_dung} thành công."}
+            return {
+                "success": True,
+                "message": f"Đã xóa người dùng có mã {ma_nguoi_dung} thành công."
+            }
         else:
             raise HTTPException(status_code=500, detail="Lỗi kết nối cơ sở dữ liệu")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
-
+    
 @app.get("/getUser")
 def get_user(ma_nguoi_dung: int = Query(..., description="Mã người dùng cần tìm")):
     try:
@@ -1858,7 +1893,7 @@ def lay_sanpham_lien_quan(ma_danh_muc: int, ma_san_pham: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class GioHangItem(BaseModel):
+class DonHangItem(BaseModel):
     ma_gio_hang: int
     ma_bien_the: int
     so_luong: int
@@ -1869,15 +1904,20 @@ class DonHangRequest(BaseModel):
     so_dien_thoai: str
     dia_chi_giao_hang: str
     thanh_toan: str
-    san_pham: List[GioHangItem]
-    voucher_id: Optional[int] = None
+    phuong_thuc_id: int  
+    voucher_order_id: Optional[int] = None
+    voucher_ship_id: Optional[int] = None
+    san_pham: List[DonHangItem]
+
+
 
 @app.post("/taoDonHang")
 def tao_don_hang(request: DonHangRequest):
     try:
         conn = db.connect_to_database()
-        cursor = conn.cursor(dictionary=True)  
+        cursor = conn.cursor(dictionary=True)
 
+        # Tính tổng tiền hàng
         tong_tien = 0
         for item in request.san_pham:
             cursor.execute("""
@@ -1890,23 +1930,28 @@ def tao_don_hang(request: DonHangRequest):
                 raise HTTPException(status_code=404, detail="Không tìm thấy biến thể")
             tong_tien += row['gia'] * item.so_luong
 
+        # Tạo đơn hàng
         cursor.execute("""
             INSERT INTO DonHang (
                 ma_nguoi_dung, ten_nguoi_nhan, so_dien_thoai, dia_chi_giao_hang,
-                tong_tien, trang_thai, ngay_tao, voucher_id
-            ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
+                tong_tien, trang_thai, ngay_tao,
+                voucher_order_id, voucher_ship_id, phuong_thuc_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)
         """, (
             request.ma_nguoi_dung,
             request.ten_nguoi_nhan,
             request.so_dien_thoai,
-            request.dia_chi_giao_hang,
+            request.phuong_thuc_id,
             tong_tien,
             "Chờ xác nhận",
-            request.voucher_id
+            request.voucher_order_id,
+            request.voucher_ship_id,
+            request.phuong_thuc_id
         ))
 
         ma_don_hang = cursor.lastrowid
 
+        # Chi tiết đơn hàng
         for item in request.san_pham:
             cursor.execute("""
                 SELECT s.gia FROM BienTheSanPham b
@@ -1926,13 +1971,39 @@ def tao_don_hang(request: DonHangRequest):
             """, (item.so_luong, item.ma_bien_the))
 
             cursor.execute("DELETE FROM GioHang WHERE ma_gio_hang = %s", (item.ma_gio_hang,))
+        # Trừ số lượng và đánh dấu đã dùng cho voucher_order_id
+        # Nếu có voucher đơn hàng → trừ số lượng và đánh dấu đã sử dụng
+        if request.voucher_order_id:
+            cursor.execute("""
+                UPDATE voucher SET so_luong = so_luong - 1 WHERE id = %s AND so_luong > 0
+            """, (request.voucher_order_id,))
+            cursor.execute("""
+                UPDATE NguoiDungVoucher 
+                SET da_su_dung = TRUE, ngay_su_dung = NOW()
+                WHERE voucher_id = %s AND ma_nguoi_dung = %s
+            """, (request.voucher_order_id, request.ma_nguoi_dung))
+
+        # Nếu có voucher ship → trừ số lượng và đánh dấu đã sử dụng
+        if request.voucher_ship_id:
+            cursor.execute("""
+                UPDATE voucher SET so_luong = so_luong - 1 WHERE id = %s AND so_luong > 0
+            """, (request.voucher_ship_id,))
+            cursor.execute("""
+                UPDATE NguoiDungVoucher 
+                SET da_su_dung = TRUE, ngay_su_dung = NOW()
+                WHERE voucher_id = %s AND ma_nguoi_dung = %s
+            """, (request.voucher_ship_id, request.ma_nguoi_dung))
+
 
         conn.commit()
         cursor.close()
         conn.close()
+
         return {"message": "Tạo đơn hàng thành công", "ma_don_hang": ma_don_hang}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 
@@ -1954,7 +2025,9 @@ def get_all_don_hang(ma_nguoi_dung: int = Query(...)):
                 tong_tien,
                 trang_thai,
                 ngay_tao,
-                voucher_id
+                voucher_order_id,
+                voucher_ship_id,
+                phuong_thuc_id
             FROM DonHang
             WHERE ma_nguoi_dung = %s
             ORDER BY ngay_tao DESC
@@ -1970,6 +2043,7 @@ def get_all_don_hang(ma_nguoi_dung: int = Query(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ---------------------------------------------------------------------------------------------------------------
 
 @app.get("/getChiTietDonHang")
@@ -1978,9 +2052,28 @@ def get_chi_tiet_don_hang(ma_don_hang: int = Query(...)):
         conn = db.connect_to_database()
         if conn is None:
             raise HTTPException(status_code=500, detail="Không kết nối được DB")
-
+        
         cursor = conn.cursor(dictionary=True)
 
+        # Lấy thông tin đơn hàng
+        cursor.execute("""
+            SELECT 
+                ma_don_hang,
+                ma_nguoi_dung,
+                tong_tien,
+                voucher_order_id,
+                voucher_ship_id,
+                phuong_thuc_id,
+                trang_thai,
+                ngay_tao
+            FROM DonHang
+            WHERE ma_don_hang = %s
+        """, (ma_don_hang,))
+        don_hang_info = cursor.fetchone()
+        if not don_hang_info:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+
+        # Lấy chi tiết sản phẩm trong đơn
         cursor.execute("""
             SELECT 
                 sp.ten_san_pham,
@@ -2001,15 +2094,19 @@ def get_chi_tiet_don_hang(ma_don_hang: int = Query(...)):
             LEFT JOIN AnhBienThe ab ON ab.ma_anh = first_ab.ma_anh
             WHERE ct.ma_don_hang = %s
         """, (ma_don_hang,))
+        chi_tiet = cursor.fetchall()
 
-        result = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        return result if result else []
+        return {
+            "don_hang": don_hang_info,
+            "chi_tiet": chi_tiet
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 
@@ -2065,3 +2162,240 @@ def get_all_phuong_thuc_van_chuyen():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
+    
+@app.post("/themVoucher")
+def them_voucher(
+    ma_voucher: str = Form(...),
+    mo_ta_hien_thi: str = Form(...),
+    loai: str = Form(...),  # 'ship' hoặc 'order'
+    kieu_giam: str = Form(...),  # 'phan_tram' hoặc 'tien_mat'
+    gia_tri: float = Form(...),
+    dieu_kien_ap_dung: float = Form(0),
+    so_luong: int = Form(1),
+    ngay_bat_dau: str = Form(...),  # format: 'YYYY-MM-DD HH:MM:SS'
+    ngay_ket_thuc: str = Form(...),
+    hien_thi_auto: bool = Form(False),
+    trang_thai: str = Form("hoat_dong"),
+    nguoi_tao: int = Form(...),
+    hinh_anh: UploadFile = File(...)
+):
+    try:
+        # Lưu hình ảnh
+        file_path = os.path.join(UPLOAD_FOLDER, hinh_anh.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(hinh_anh.file, buffer)
+        hinh_anh_url = f"/{UPLOAD_FOLDER}{hinh_anh.filename}"
+
+        # Kết nối CSDL
+        conn = db.connect_to_database()
+        if isinstance(conn, Error):
+            raise HTTPException(status_code=500, detail="Lỗi kết nối CSDL")
+        cursor = conn.cursor()
+
+        sql = """
+            INSERT INTO voucher (
+                ma_voucher, mo_ta_hien_thi, loai, kieu_giam, gia_tri,
+                dieu_kien_ap_dung, so_luong, ngay_bat_dau, ngay_ket_thuc,
+                hinh_anh, hien_thi_auto, trang_thai, nguoi_tao
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+
+        values = (
+            ma_voucher,
+            mo_ta_hien_thi,
+            loai,
+            kieu_giam,
+            gia_tri,
+            dieu_kien_ap_dung,
+            so_luong,
+            ngay_bat_dau,
+            ngay_ket_thuc,
+            hinh_anh_url,
+            hien_thi_auto,
+            trang_thai,
+            nguoi_tao
+        )
+
+        cursor.execute(sql, values)
+        conn.commit()
+        new_id = cursor.lastrowid
+        cursor.close()
+        conn.close()
+
+        return {
+            "message": "Thêm voucher thành công",
+            "id": new_id,
+            "hinh_anh": hinh_anh_url
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
+    
+
+@app.get("/getAllVoucher")
+def get_all_voucher():
+    try:
+        conn = db.connect_to_database()
+        if isinstance(conn, Error):
+            raise HTTPException(status_code=500, detail="Lỗi kết nối cơ sở dữ liệu")
+
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT 
+                id,
+                ma_voucher,
+                mo_ta_hien_thi,
+                loai,
+                kieu_giam,
+                gia_tri,
+                dieu_kien_ap_dung,
+                so_luong,
+                ngay_bat_dau,
+                ngay_ket_thuc,
+                hinh_anh,
+                hien_thi_auto,
+                trang_thai,
+                ngay_tao,
+                ngay_cap_nhat
+            FROM voucher
+        """)
+
+        result = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        if result:
+            return result
+        else:
+            return JSONResponse(content={"message": "Không có voucher nào"}, status_code=200)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
+    
+
+# API 1: Lấy tất cả voucher theo loại
+# @app.get("/layVoucherTheoLoai")
+# def lay_voucher_theo_loai(loai: str = Query(...)):
+#     try:
+#         conn = db.connect_to_database()
+#         cursor = conn.cursor(dictionary=True)
+#         cursor.execute("""
+#             SELECT * FROM voucher
+#             WHERE loai = %s AND trang_thai = 'hoat_dong'
+#             AND ngay_bat_dau <= NOW() AND ngay_ket_thuc >= NOW()
+#         """, (loai,))
+#         return cursor.fetchall()
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+@app.get("/getVoucherTheoLoai")
+def get_voucher_theo_loai(loai: str = Query(...)):
+    try:
+        conn = db.connect_to_database()
+        if isinstance(conn, Error):
+            raise HTTPException(status_code=500, detail="Lỗi kết nối CSDL")
+
+        cursor = conn.cursor(dictionary=True)
+
+        sql = """
+            SELECT * FROM voucher
+            WHERE loai = %s 
+              AND trang_thai = 'hoat_dong'
+              AND hien_thi_auto = 1
+              AND NOW() BETWEEN ngay_bat_dau AND ngay_ket_thuc
+              AND so_luong > 0
+        """
+
+        cursor.execute(sql, (loai,))
+        vouchers = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return vouchers
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# API 2: Kiểm tra mã voucher
+@app.get("/kiemTraVoucher")
+def kiem_tra_voucher(ma_voucher: str, ma_nguoi_dung: int):
+    try:
+        conn = db.connect_to_database()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT * FROM voucher
+            WHERE ma_voucher = %s AND trang_thai = 'hoat_dong'
+            AND ngay_bat_dau <= NOW() AND ngay_ket_thuc >= NOW()
+        """, (ma_voucher,))
+        voucher = cursor.fetchone()
+        if not voucher:
+            raise HTTPException(status_code=404, detail="Voucher không tồn tại hoặc đã hết hạn")
+
+        cursor.execute("""
+            SELECT * FROM NguoiDungVoucher
+            WHERE ma_nguoi_dung = %s AND voucher_id = %s
+        """, (ma_nguoi_dung, voucher['id']))
+        if cursor.fetchone():
+            return {"message": "Voucher đã tồn tại"}
+
+        return voucher
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# API 3: Áp dụng voucher cho người dùng
+class LuuVoucherRequest(BaseModel):
+    ma_nguoi_dung: int
+    voucher_id: int
+
+@app.post("/luuVoucherNguoiDung")
+def luu_voucher(request: LuuVoucherRequest):
+    try:
+        conn = db.connect_to_database()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO NguoiDungVoucher (ma_nguoi_dung, voucher_id)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE da_su_dung = FALSE
+        """, (request.ma_nguoi_dung, request.voucher_id))
+        conn.commit()
+        return {"message": "Lưu voucher thành công"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# API 4: Hiển thị các voucher chưa sử dụng
+@app.get("/voucherNguoiDungChuaDung")
+def get_voucher_chua_dung(ma_nguoi_dung: int = Query(...)):
+    try:
+        conn = db.connect_to_database()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Trả đầy đủ các trường cần thiết, không thiếu ngày/thông tin ảnh
+        cursor.execute("""
+            SELECT 
+                v.id,
+                v.ma_voucher,
+                v.mo_ta_hien_thi,
+                v.loai,
+                v.kieu_giam,
+                v.gia_tri,
+                v.dieu_kien_ap_dung,
+                v.ngay_bat_dau,
+                v.ngay_ket_thuc,
+                v.hinh_anh,
+                v.hien_thi_auto,
+                v.trang_thai
+            FROM NguoiDungVoucher nv
+            JOIN voucher v ON nv.voucher_id = v.id
+            WHERE nv.ma_nguoi_dung = %s 
+              AND nv.da_su_dung = FALSE
+              AND v.trang_thai = 'hoat_dong'
+              AND v.ngay_bat_dau <= NOW()
+              AND v.ngay_ket_thuc >= NOW()
+        """, (ma_nguoi_dung,))
+        
+        return cursor.fetchall()
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

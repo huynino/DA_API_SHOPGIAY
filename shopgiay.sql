@@ -137,6 +137,7 @@ CREATE TABLE voucher (
     ngay_bat_dau DATETIME,
     ngay_ket_thuc DATETIME,
     hinh_anh VARCHAR(255),
+    hien_thi_auto BOOLEAN DEFAULT FALSE,
     trang_thai ENUM('hoat_dong', 'tam_ngung', 'het_han') DEFAULT 'hoat_dong',
     ngay_tao DATETIME DEFAULT CURRENT_TIMESTAMP,
     nguoi_tao INT,
@@ -145,6 +146,16 @@ CREATE TABLE voucher (
 );
 
 
+CREATE TABLE NguoiDungVoucher (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ma_nguoi_dung INT,
+    voucher_id INT,
+    da_su_dung BOOLEAN DEFAULT FALSE,
+    ngay_su_dung DATETIME,
+    UNIQUE KEY (ma_nguoi_dung, voucher_id),
+    FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE CASCADE,
+    FOREIGN KEY (voucher_id) REFERENCES voucher(id) ON DELETE CASCADE
+);
 
 
 CREATE TABLE DiaChiNguoiDung (
