@@ -66,12 +66,15 @@ CREATE TABLE DonHang (
     tong_tien DECIMAL(15, 2),
     trang_thai VARCHAR(20),
     ngay_tao DATETIME DEFAULT CURRENT_TIMESTAMP,
-    voucher_id INT DEFAULT NULL,
+    voucher_order_id INT DEFAULT NULL,
+    voucher_ship_id INT DEFAULT NULL,
     phuong_thuc_id INT DEFAULT NULL,  
     FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE SET NULL,
-    FOREIGN KEY (voucher_id) REFERENCES voucher(id) ON DELETE SET NULL,
+    FOREIGN KEY (voucher_order_id) REFERENCES voucher(id) ON DELETE SET NULL,
+    FOREIGN KEY (voucher_ship_id) REFERENCES voucher(id) ON DELETE SET NULL,
     FOREIGN KEY (phuong_thuc_id) REFERENCES PhuongThucVanChuyen(id) ON DELETE SET NULL
 );
+
 
 CREATE TABLE PhuongThucVanChuyen (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -169,11 +172,59 @@ CREATE TABLE DiaChiNguoiDung (
     FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE CASCADE
 );
 
+CREATE TABLE XacThucOTP (
+    email VARCHAR(255) PRIMARY KEY,
+    ma_otp VARCHAR(10),
+    thoi_gian_gui DATETIME
+);
+CREATE TABLE PhieuNhap (
+    ma_phieu_nhap INT AUTO_INCREMENT PRIMARY KEY,
+    nguoi_nhap VARCHAR(100) NOT NULL,
+    ngay_nhap DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE ChiTietPhieuNhap (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ma_phieu_nhap INT NOT NULL,
+    ma_san_pham INT NOT NULL,
+    ma_mau INT NOT NULL,
+    kich_thuoc VARCHAR(10) NOT NULL,
+    so_luong INT NOT NULL CHECK (so_luong > 0),
+
+    FOREIGN KEY (ma_phieu_nhap) REFERENCES PhieuNhap(ma_phieu_nhap) ON DELETE CASCADE,
+    FOREIGN KEY (ma_san_pham) REFERENCES SanPham(ma_san_pham),
+    FOREIGN KEY (ma_mau) REFERENCES MauSac(ma_mau)
+);
+
+
+UPDATE BienTheSanPham b1
+JOIN (
+    SELECT ma_san_pham, ma_mau, kich_thuoc, MIN(ma_bien_the) AS keep_id, SUM(so_luong_ton) AS tong
+    FROM BienTheSanPham
+    GROUP BY ma_san_pham, ma_mau, kich_thuoc
+    HAVING COUNT(*) > 1
+) dup
+ON b1.ma_bien_the = dup.keep_id
+SET b1.so_luong_ton = dup.tong;
+
+DELETE b2 FROM BienTheSanPham b2
+JOIN (
+    SELECT ma_san_pham, ma_mau, kich_thuoc, MIN(ma_bien_the) AS keep_id
+    FROM BienTheSanPham
+    GROUP BY ma_san_pham, ma_mau, kich_thuoc
+    HAVING COUNT(*) > 1
+) dup
+ON b2.ma_san_pham = dup.ma_san_pham
+AND b2.ma_mau = dup.ma_mau
+AND b2.kich_thuoc = dup.kich_thuoc
+AND b2.ma_bien_the != dup.keep_id;
+
+
+ALTER TABLE BienTheSanPham
+ADD CONSTRAINT unique_bien_the UNIQUE (ma_san_pham, ma_mau, kich_thuoc);
 
 ALTER TABLE GioHang ADD COLUMN duong_dan_anh VARCHAR(255);
+ALTER TABLE PhieuNhap
+ADD tong_so_luong INT DEFAULT 0;
 
-ALTER TABLE DonHang
-ADD COLUMN voucher_id INT DEFAULT NULL,
-ADD CONSTRAINT fk_donhang_voucher FOREIGN KEY (voucher_id) REFERENCES Vouchers(id) ON DELETE SET NULL;
 
 
