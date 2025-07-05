@@ -9,30 +9,36 @@ load_dotenv(dotenv_path="tkmk.env")
 
 def send_order_email(to_email, customer_name, order_id, total_amount):
     subject = f"Xác nhận đơn hàng #{order_id}"
-    body = f"""
-    Xin chào {customer_name},
+    body = f"""\
+Xin chào {customer_name},
 
-    Cảm ơn bạn đã đặt hàng tại hệ thống DoubleH.
+Cảm ơn bạn đã đặt hàng tại hệ thống DoubleH.
 
-    🧾 Mã đơn hàng: {order_id}
-    💰 Tổng tiền: {total_amount:,.0f} VNĐ
+🧾 Mã đơn hàng: {order_id}
+💰 Tổng tiền: {total_amount:,.0f} VNĐ
 
-    Đơn hàng của bạn đang được xử lý và sẽ sớm giao đến bạn.
+Đơn hàng của bạn đang được xử lý và sẽ sớm giao đến bạn.
 
-    Trân trọng,
-    DoubleH Store
-    """
+Trân trọng,
+DoubleH Store
+"""
 
     msg = MIMEMultipart()
-    msg['From'] = os.getenv("EMAIL_USER")
+    from_email = os.getenv("EMAIL_USER", "no-reply@doubleh.vn")
+    msg['From'] = from_email
     msg['To'] = to_email
     msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
     try:
-        server = smtplib.SMTP(os.getenv("EMAIL_HOST"), int(os.getenv("EMAIL_PORT")))
+        smtp_host = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("EMAIL_PORT", 587))
+        smtp_user = os.getenv("EMAIL_USER")
+        smtp_pass = os.getenv("EMAIL_PASS")
+
+        server = smtplib.SMTP(smtp_host, smtp_port)
         server.starttls()
-        server.login(os.getenv("EMAIL_USER"), os.getenv("EMAIL_PASS"))
+        server.login(smtp_user, smtp_pass)
         server.send_message(msg)
         server.quit()
         print(f"✅ Đã gửi email đến {to_email}")

@@ -95,14 +95,14 @@ CREATE TABLE ChiTietDonHang (
 );
 
 -- Bảng ThanhToan
-CREATE TABLE ThanhToan (
-    ma_thanh_toan INT AUTO_INCREMENT PRIMARY KEY,
-    ma_don_hang INT,
-    phuong_thuc VARCHAR(20),
-    trang_thai VARCHAR(20),
-    ngay_thanh_toan DATETIME,
-    FOREIGN KEY (ma_don_hang) REFERENCES DonHang(ma_don_hang) ON DELETE CASCADE
-);
+-- CREATE TABLE ThanhToan (
+--     ma_thanh_toan INT AUTO_INCREMENT PRIMARY KEY,
+--     ma_don_hang INT,
+--     phuong_thuc VARCHAR(20),
+--     trang_thai VARCHAR(20),
+--     ngay_thanh_toan DATETIME,
+--     FOREIGN KEY (ma_don_hang) REFERENCES DonHang(ma_don_hang) ON DELETE CASCADE
+-- );
 
 -- Bảng DanhSachYeuThich
 CREATE TABLE DanhSachYeuThich (
@@ -195,6 +195,45 @@ CREATE TABLE ChiTietPhieuNhap (
     FOREIGN KEY (ma_mau) REFERENCES MauSac(ma_mau)
 );
 
+CREATE TABLE OTP (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    ma_nguoi_dung INT NULL,
+    otp_code VARCHAR(10) NOT NULL,
+    time_sent DATETIME NOT NULL,
+    time_verified DATETIME DEFAULT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
+    expires_at DATETIME NOT NULL,
+    
+    INDEX idx_email_time (email, time_sent),
+    CONSTRAINT fk_user FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE SET NULL
+);
+CREATE TABLE DanhGia (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ma_nguoi_dung INT NOT NULL,
+    ma_san_pham INT NOT NULL,
+    ma_don_hang VARCHAR(50),
+    so_sao INT CHECK (so_sao BETWEEN 1 AND 5),
+    binh_luan TEXT,
+    ngay_danh_gia DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung),
+    FOREIGN KEY (ma_san_pham) REFERENCES SanPham(ma_san_pham)
+);
+CREATE TABLE ToCao (
+    id INT AUTO_INCREMENT PRIMARY KEY, -- ID nội bộ 
+    ma_to_cao VARCHAR(30) NOT NULL UNIQUE, 
+    ma_nguoi_dung INT NOT NULL,
+    ma_don_hang VARCHAR(20) NOT NULL,
+    ly_do VARCHAR(255) NOT NULL,
+    noi_dung TEXT,
+    thoi_gian_gui DATETIME DEFAULT CURRENT_TIMESTAMP,
+    trang_thai ENUM('cho_xu_ly', 'da_xu_ly', 'tu_choi') DEFAULT 'cho_xu_ly',
+
+    FOREIGN KEY (ma_nguoi_dung) REFERENCES NguoiDung(ma_nguoi_dung) ON DELETE CASCADE,
+    FOREIGN KEY (ma_don_hang) REFERENCES DonHang(ma_don_hang)
+);
+
+
 
 UPDATE BienTheSanPham b1
 JOIN (
@@ -225,6 +264,13 @@ ADD CONSTRAINT unique_bien_the UNIQUE (ma_san_pham, ma_mau, kich_thuoc);
 ALTER TABLE GioHang ADD COLUMN duong_dan_anh VARCHAR(255);
 ALTER TABLE PhieuNhap
 ADD tong_so_luong INT DEFAULT 0;
+SHOW CREATE TABLE PhieuNhap;
+ALTER TABLE DonHang DROP PRIMARY KEY;
+ALTER TABLE DonHang CHANGE ma_don_hang id INT AUTO_INCREMENT PRIMARY KEY;
+ALTER TABLE DonHang ADD COLUMN ma_don_hang VARCHAR(20) AFTER id;
+ALTER TABLE ChiTietDonHang
+  ADD CONSTRAINT chitietdonhang_ibfk_1
+  FOREIGN KEY (ma_don_hang) REFERENCES DonHang(id) ON DELETE CASCADE;
 
 
 
