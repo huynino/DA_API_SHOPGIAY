@@ -1,5 +1,5 @@
 import smtplib
-import os
+import smtplib, os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
@@ -50,22 +50,29 @@ DoubleH Store
 
 def send_otp_email(to_email, otp_code):
     subject = "Mã xác thực OTP từ DoubleH"
-    body = f"""
-    Xin chào,
 
-    Đây là mã OTP của bạn: {otp_code}
-
-    Mã có hiệu lực trong vòng 5 phút.
-
-    Trân trọng,
-    DoubleH Store
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; background-color: #f6f6f6; padding: 20px;">
+        <div style="max-width: 500px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1);">
+            <h2 style="color: #8A2BE2;">Xác thực tài khoản</h2>
+            <p>Xin chào,</p>
+            <p>Đây là mã OTP của bạn:</p>
+            <h1 style="text-align: center; background-color: #8A2BE2; color: white; padding: 10px; border-radius: 5px;">{otp_code}</h1>
+            <p style="color: #555;">Mã có hiệu lực trong vòng <b>1 phút</b>.</p>
+            <br>
+            <p style="font-size: 13px; color: #888;">Trân trọng,<br>DoubleH Store</p>
+        </div>
+    </body>
+    </html>
     """
 
-    msg = MIMEMultipart()
+    msg = MIMEMultipart("alternative")
     msg['From'] = os.getenv("EMAIL_USER")
     msg['To'] = to_email
     msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+
+    msg.attach(MIMEText(html_content, 'html'))
 
     try:
         server = smtplib.SMTP(os.getenv("EMAIL_HOST"), int(os.getenv("EMAIL_PORT")))
