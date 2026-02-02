@@ -12,7 +12,7 @@ from fastapi import Path
 from datetime import datetime
 from typing import List, Optional
 
-  # module kết nối cơ sở dữ liệu của bạn
+
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
