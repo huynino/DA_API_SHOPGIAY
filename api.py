@@ -71,7 +71,36 @@ def get_all_mau_sac():
             raise HTTPException(status_code=500, detail="Lỗi kết nối cơ sở dữ liệu")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi server: {str(e)}")
-    
+
+class MauModel(BaseModel):
+    ma_mau: int
+    ten_mau: str
+
+@app.get("/getMauTheoSanPham", response_model=List[MauModel])
+def get_mau(maSanPham: int = Query(...)):
+    try:
+        conn = db.connect_to_database()
+        cursor = conn.cursor(dictionary=True)
+
+        # Truy vấn dựa vào bảng AnhBienThe
+        cursor.execute("""
+            SELECT DISTINCT ms.ma_mau, ms.ten_mau
+            FROM AnhBienThe abt
+            JOIN MauSac ms ON abt.ma_mau = ms.ma_mau
+            WHERE abt.ma_san_pham = %s
+        """, (maSanPham,))
+
+        result = cursor.fetchall()
+        return result
+
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()    
+ 
 @app.post("/addMauSac")
 def add_mau_sac(
     ten_mau: str ,
@@ -2316,7 +2345,7 @@ def tao_don_hang(request: DonHangRequest):
             request.ma_nguoi_dung,
             request.ten_nguoi_nhan,
             request.so_dien_thoai,
-            request.phuong_thuc_id,
+            request.dia_chi_giao_hang,
             tong_thanh_toan,
             "Chờ xác nhận",
             request.voucher_order_id,
@@ -2375,9 +2404,39 @@ def tao_don_hang(request: DonHangRequest):
         #  Gửi email xác nhận (nếu cần)
         cursor.execute("SELECT email FROM NguoiDung WHERE ma_nguoi_dung = %s", (request.ma_nguoi_dung,))
         user = cursor.fetchone()
+
+        cursor.execute("SELECT dia_chi_giao_hang FROM DonHang WHERE id = %s", (id_don_hang,))
+        row = cursor.fetchone()
+        dia_chi = row["dia_chi_giao_hang"] if row else ""
+
+
+        cursor.execute("""
+            SELECT s.ten_san_pham, c.so_luong, c.gia, 
+                   IFNULL(ms.ten_mau, '') AS mau_sac, 
+                   IFNULL(b.kich_thuoc, '') AS kich_thuoc
+            FROM ChiTietDonHang c
+            JOIN BienTheSanPham b ON c.ma_bien_the = b.ma_bien_the
+            LEFT JOIN MauSac ms ON b.ma_mau = ms.ma_mau
+            JOIN SanPham s ON b.ma_san_pham = s.ma_san_pham
+            WHERE c.ma_don_hang = %s
+        """, (ma_don_hang,))
+        san_pham = cursor.fetchall()
+        print("[DEBUG] Địa chỉ gửi email:", dia_chi)
+
         if user:
             try:
-                send_order_email(user["email"], request.ten_nguoi_nhan, ma_don_hang, tong_thanh_toan)
+                send_order_email(
+                    to_email=user["email"],
+                    customer_name=request.ten_nguoi_nhan,
+                    order_id=ma_don_hang,
+                    total_amount=tong_thanh_toan,
+                    dia_chi=dia_chi,
+                    sdt=request.so_dien_thoai,
+                    san_pham=san_pham,
+                    giam_gia_order=giam_gia_order,
+                    giam_gia_ship=giam_gia_ship,
+                    phi_ship=phi_ship
+                )
             except Exception as mail_err:
                 print(f"[EMAIL ERROR] {mail_err}")
 
@@ -2393,6 +2452,7 @@ def tao_don_hang(request: DonHangRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/getAllDonHang")
 def get_all_don_hang(ma_nguoi_dung: int = Query(...)):
@@ -2438,6 +2498,82 @@ def get_all_don_hang(ma_nguoi_dung: int = Query(...)):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# @app.get("/getChiTietDonHang")
+# def get_chi_tiet_don_hang(ma_don_hang: str = Query(...)):
+#     try:
+#         conn = db.connect_to_database()
+#         if conn is None:
+#             raise HTTPException(status_code=500, detail="Không kết nối được DB")
+
+#         cursor = conn.cursor(dictionary=True)
+
+#         # Thông tin đơn hàng
+#         cursor.execute("""
+#             SELECT 
+#             dh.ma_don_hang,
+#             dh.ma_nguoi_dung,
+#             dh.tong_tien,
+#             vo.gia_tri AS giam_gia_order,
+#             vo.kieu_giam AS kieu_giam_order, 
+#             vs.gia_tri AS giam_gia_ship,
+#             vs.kieu_giam AS kieu_giam_ship,
+#             dh.phuong_thuc_id,
+#             dh.trang_thai,
+#             dh.ngay_tao,
+#             dc.ten_nguoi_nhan,
+#             dc.so_dien_thoai,
+#             dc.dia_chi AS dia_chi_giao_hang,
+#             ptvc.ten_phuong_thuc,
+#             ptvc.chi_phi AS chi_phi_van_chuyen
+#         FROM DonHang dh
+#         LEFT JOIN DiaChiNguoiDung dc ON dh.dia_chi_giao_hang = dc.id
+#         LEFT JOIN PhuongThucVanChuyen ptvc ON dh.phuong_thuc_id = ptvc.id
+#         LEFT JOIN voucher vo ON dh.voucher_order_id = vo.id
+#         LEFT JOIN voucher vs ON dh.voucher_ship_id = vs.id
+
+#         WHERE dh.ma_don_hang = %s
+
+#         """, (ma_don_hang,))
+#         don_hang_info = cursor.fetchone()
+
+#         if not don_hang_info:
+#             raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+
+#         # Chi tiết sản phẩm trong đơn
+#         cursor.execute("""
+#             SELECT 
+#                 sp.ma_san_pham,
+#                 sp.ten_san_pham,
+#                 ms.ten_mau,
+#                 b.kich_thuoc,
+#                 ct.so_luong,
+#                 ct.gia,
+#                 IFNULL(ab.duong_dan, sp.anh_san_pham) AS hinh_anh
+#             FROM ChiTietDonHang ct
+#             JOIN BienTheSanPham b ON ct.ma_bien_the = b.ma_bien_the
+#             JOIN SanPham sp ON b.ma_san_pham = sp.ma_san_pham
+#             JOIN MauSac ms ON b.ma_mau = ms.ma_mau
+#             LEFT JOIN (
+#                 SELECT ma_san_pham, ma_mau, MIN(ma_anh) AS ma_anh
+#                 FROM AnhBienThe
+#                 GROUP BY ma_san_pham, ma_mau
+#             ) first_ab ON first_ab.ma_san_pham = sp.ma_san_pham AND first_ab.ma_mau = ms.ma_mau
+#             LEFT JOIN AnhBienThe ab ON ab.ma_anh = first_ab.ma_anh
+#             WHERE ct.ma_don_hang = %s
+#         """, (ma_don_hang,))
+#         chi_tiet = cursor.fetchall()
+
+#         cursor.close()
+#         conn.close()
+
+#         return {
+#             "don_hang": don_hang_info,
+#             "chi_tiet": chi_tiet
+#         }
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/getChiTietDonHang")
 def get_chi_tiet_don_hang(ma_don_hang: str = Query(...)):
     try:
@@ -2447,31 +2583,34 @@ def get_chi_tiet_don_hang(ma_don_hang: str = Query(...)):
 
         cursor = conn.cursor(dictionary=True)
 
-        # Thông tin đơn hàng
+        # Lấy thông tin đơn hàng
         cursor.execute("""
             SELECT 
-            dh.ma_don_hang,
-            dh.ma_nguoi_dung,
-            dh.tong_tien,
-            vo.gia_tri AS giam_gia_order,
-            vo.kieu_giam AS kieu_giam_order, 
-            vs.gia_tri AS giam_gia_ship,
-            vs.kieu_giam AS kieu_giam_ship,
-            dh.phuong_thuc_id,
-            dh.trang_thai,
-            dh.ngay_tao,
-            dc.ten_nguoi_nhan,
-            dc.so_dien_thoai,
-            dc.dia_chi AS dia_chi_giao_hang,
-            ptvc.ten_phuong_thuc,
-            ptvc.chi_phi AS chi_phi_van_chuyen
-        FROM DonHang dh
-        LEFT JOIN DiaChiNguoiDung dc ON dh.dia_chi_giao_hang = dc.id
-        LEFT JOIN PhuongThucVanChuyen ptvc ON dh.phuong_thuc_id = ptvc.id
-        LEFT JOIN voucher vo ON dh.voucher_order_id = vo.id
-        LEFT JOIN voucher vs ON dh.voucher_ship_id = vs.id
-
-        WHERE dh.ma_don_hang = %s
+                dh.ma_don_hang,
+                dh.ma_nguoi_dung,
+                dh.tong_tien,
+                vo.gia_tri AS giam_gia_order,
+                vo.kieu_giam AS kieu_giam_order, 
+                vs.gia_tri AS giam_gia_ship,
+                vs.kieu_giam AS kieu_giam_ship,
+                dh.phuong_thuc_id,
+                dh.trang_thai,
+                dh.ngay_tao,
+                dh.ngay_dat,
+                dh.trang_thai_thanh_toan,
+                dh.hinh_thuc_thanh_toan,
+                dh.ma_giao_dich_vnpay,
+                dh.thoi_gian_thanh_toan,
+                dh.ten_nguoi_nhan,
+                dh.so_dien_thoai,
+                dh.dia_chi_giao_hang,
+                ptvc.ten_phuong_thuc,
+                ptvc.chi_phi AS chi_phi_van_chuyen
+            FROM DonHang dh
+            LEFT JOIN PhuongThucVanChuyen ptvc ON dh.phuong_thuc_id = ptvc.id
+            LEFT JOIN voucher vo ON dh.voucher_order_id = vo.id
+            LEFT JOIN voucher vs ON dh.voucher_ship_id = vs.id
+            WHERE dh.ma_don_hang = %s
 
         """, (ma_don_hang,))
         don_hang_info = cursor.fetchone()
@@ -2479,7 +2618,7 @@ def get_chi_tiet_don_hang(ma_don_hang: str = Query(...)):
         if not don_hang_info:
             raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
 
-        # Chi tiết sản phẩm trong đơn
+        # Lấy chi tiết sản phẩm trong đơn hàng
         cursor.execute("""
             SELECT 
                 sp.ma_san_pham,
@@ -2618,12 +2757,7 @@ async def cap_nhat_thong_tin(
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": f"Cập nhật thất bại: {e}"})
     
-#------------------Chi tiết nhập kho ----------------------------
 
-# ----- SCHEMA -----
-# ======= SCHEMA =======
-
-# ------------------ SCHEMA ------------------
 class ChiTietNhap(BaseModel):
     ma_san_pham: int
     ma_mau: int
@@ -2707,7 +2841,6 @@ def nhap_kho(data: TaoPhieuNhap):
         conn.close()
 
 
-# ------------------ API GET ALL ------------------
 @app.get("/getAllPhieuNhap", response_model=List[PhieuNhapInfo])
 def get_all_phieu_nhap():
     try:
@@ -2725,7 +2858,7 @@ def get_all_phieu_nhap():
         conn.close()
 
 
-# ------------------ API GET DETAIL ------------------
+
 @app.get("/phieu-nhap/{ma_phieu_nhap}")
 def get_phieu_nhap_full(ma_phieu_nhap: str):
     try:
@@ -2994,7 +3127,7 @@ async def upload_anh_bien_the_don_gian(
                 shutil.copyfileobj(file.file, buffer)
             duong_dan_anh.append(f"/{duong_dan}")
         
-        # Lưu vào DB tại đây nếu cần (INSERT ma_san_pham, ma_mau, duong_dan)
+        # Lưu vào DB tại đây nếu cần 
         
         return {"success": True, "duong_dan_anh": duong_dan_anh}
     
@@ -3055,7 +3188,7 @@ def them_to_cao(data: ToCaoRequest):
 @app.get("/layToCaoTheoNguoiDung")
 def lay_to_cao_theo_nguoi_dung(ma_nguoi_dung: int = Query(...)):
     try:
-        print("📥 Đang lấy tố cáo của người dùng:", ma_nguoi_dung)
+        print(" Đang lấy tố cáo của người dùng:", ma_nguoi_dung)
 
         conn = db.connect_to_database()
         cursor = conn.cursor(dictionary=True)
@@ -3297,6 +3430,7 @@ def get_voucher_detail(voucher_id: int):
         conn.close()
 
 
+
 @app.post("/capnhatNguoiDung")
 def capnhat_nguoi_dung(
     ma_nguoi_dung: int = Form(...),
@@ -3312,13 +3446,15 @@ def capnhat_nguoi_dung(
         cursor = conn.cursor()
 
         if mat_khau:
+            # Mã hóa mật khẩu bằng bcrypt
+            hashed_password = hashlib.sha256(mat_khau.encode()).hexdigest()
             cursor.execute("""
                 UPDATE NguoiDung
                 SET ten_nguoi_dung=%s, email=%s, mat_khau=%s,
                     sdt=%s, dia_chi_mac_dinh=%s, vai_tro=%s
                 WHERE ma_nguoi_dung=%s
             """, (
-                ten_nguoi_dung, email, mat_khau,
+                ten_nguoi_dung, email, hashed_password,
                 sdt, dia_chi_mac_dinh, vai_tro, ma_nguoi_dung
             ))
         else:
@@ -3340,8 +3476,6 @@ def capnhat_nguoi_dung(
     finally:
         cursor.close()
         conn.close()
-
-
 
 @app.post("/dat-lai-mat-khau")
 def dat_lai_mat_khau(
@@ -3525,10 +3659,12 @@ def get_top_sanpham_ban_chay():
         conn = db.connect_to_database()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT sp.ma_san_pham, sp.ten_san_pham, sp.gia, sp.anh_san_pham, sp.ma_danh_muc, SUM(ct.so_luong) AS tong_so_luong
+            SELECT sp.ma_san_pham, sp.ten_san_pham, sp.gia, sp.anh_san_pham, sp.ma_danh_muc,
+                   SUM(ct.so_luong) AS tong_so_luong
             FROM ChiTietDonHang ct
             JOIN BienTheSanPham b ON ct.ma_bien_the = b.ma_bien_the
             JOIN SanPham sp ON b.ma_san_pham = sp.ma_san_pham
+            WHERE sp.trang_thai = 1
             GROUP BY sp.ma_san_pham
             ORDER BY tong_so_luong DESC
             LIMIT 5
@@ -3536,6 +3672,7 @@ def get_top_sanpham_ban_chay():
         return cursor.fetchall()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/sanpham_theo_ten_danh_muc")
 def get_sanpham_theo_ten_danh_muc(ten_danh_muc: str):
@@ -3546,12 +3683,13 @@ def get_sanpham_theo_ten_danh_muc(ten_danh_muc: str):
             SELECT sp.ma_san_pham, sp.ten_san_pham, sp.gia, sp.anh_san_pham, sp.ma_danh_muc
             FROM SanPham sp
             JOIN DanhMuc dm ON sp.ma_danh_muc = dm.ma_danh_muc
-            WHERE dm.ten_danh_muc LIKE %s
+            WHERE dm.ten_danh_muc LIKE %s AND sp.trang_thai = 1
             LIMIT 10
         """, (f"%{ten_danh_muc}%",))
         return cursor.fetchall()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/sanpham_danh_gia_cao")
 def get_sanpham_danh_gia_cao():
@@ -3563,10 +3701,431 @@ def get_sanpham_danh_gia_cao():
                    ROUND(AVG(dg.so_sao), 1) AS diem_tb
             FROM DanhGia dg
             JOIN SanPham sp ON dg.ma_san_pham = sp.ma_san_pham
+            WHERE sp.trang_thai = 1
             GROUP BY sp.ma_san_pham
             ORDER BY diem_tb DESC
             LIMIT 5
         """)
         return cursor.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+import hmac, hashlib, urllib.parse
+from datetime import datetime
+import logging
+from fastapi import Request
+from urllib.parse import urlencode, quote_plus
+from fastapi import Request, Query
+# Cấu hình logger
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(asctime)s - %(message)s')
+
+VNP_TMN_CODE = "DRHQJ02W"         # Mã TmnCode (sandbox)
+VNP_HASH_SECRET = "WTSDOQ65EKORK419GE7J3DYII5FGWNOM" # HashSecret (sandbox)
+VNP_PAY_URL = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
+VNP_RETURN_URL = "https://cuddly-exotic-snake.ngrok-free.app/vnpay-return"
+
+
+
+
+# Giả sử các biến cấu hình này đã được định nghĩa
+# VNP_TMN_CODE, VNP_HASH_SECRET, VNP_RETURN_URL, VNP_PAY_URL
+@app.get("/create-vnpay-payment")
+def create_vnpay_payment(request: Request, ma_don_hang: str = Query(..., alias="ma_don_hang")):
+    try:
+        conn = db.connect_to_database() 
+        cursor = conn.cursor()
+        cursor.execute("SELECT tong_tien, trang_thai_thanh_toan FROM DonHang WHERE ma_don_hang = %s", (ma_don_hang,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not row:
+            return {"code": "04", "message": "Mã đơn hàng không tồn tại"}
+
+        tong_tien, trang_thai_ht = row
+        if trang_thai_ht.lower() == "da_thanh_toan":
+            return {"code": "02", "message": "Đơn hàng đã được thanh toán trước đó"}
+
+        order_info = f"Thanh toan don hang {ma_don_hang}".encode('ascii', 'ignore').decode('ascii')
+
+        vnp_params = {
+            "vnp_Version": "2.1.0",
+            "vnp_Command": "pay",
+            "vnp_TmnCode": VNP_TMN_CODE,
+            "vnp_Amount": int(tong_tien) * 100,
+            "vnp_CurrCode": "VND",
+            "vnp_TxnRef": ma_don_hang,
+            "vnp_OrderInfo": order_info,
+            "vnp_OrderType": "other",
+            "vnp_Locale": "vn",
+            "vnp_ReturnUrl": VNP_RETURN_URL,
+            "vnp_IpAddr": request.client.host if request.client else "127.0.0.1",
+            "vnp_CreateDate": datetime.now().strftime("%Y%m%d%H%M%S"),
+            "vnp_ExpireDate": (datetime.now() + timedelta(minutes=15)).strftime("%Y%m%d%H%M%S")
+        }
+
+        # Tính chữ ký
+        sorted_params = sorted(vnp_params.items())
+       
+        hash_data = '&'.join([f"{k}={quote_plus(str(v))}" for k, v in sorted_params])
+
+        print("VNP_HASH_SECRET:", repr(VNP_HASH_SECRET))
+        secure_hash = hmac.new(VNP_HASH_SECRET.encode('utf-8'), hash_data.encode('utf-8'), hashlib.sha512).hexdigest()
+
+        # Sau khi tính xong, thêm SecureHash và SecureHashType vào
+        vnp_params["vnp_SecureHash"] = secure_hash
+        vnp_params["vnp_SecureHashType"] = "SHA512"
+
+        # Giữ nguyên thứ tự vnp_params để build query string
+        sorted_query = sorted(vnp_params.items())  # Sắp xếp lại đúng thứ tự
+        final_query = '&'.join([f"{k}={quote_plus(str(v))}" for k, v in sorted_query])
+
+        payment_url = f"{VNP_PAY_URL}?{final_query}"
+
+
+        logging.info(f"[VNPay] hash_data: {hash_data}")
+        logging.info(f"[VNPay] secure_hash: {secure_hash}")
+        logging.info(f"[VNPay] payment_url: {payment_url}")
+
+        return {
+            "code": "00",
+            "message": "OK",
+            "data": {
+                "payment_url": payment_url
+            }
+        }
+
+    except Exception as e:
+        logging.error(f"[VNPay] Lỗi khi tạo link thanh toán: {e}")
+        return {"code": "99", "message": f"Lỗi xử lý: {str(e)}"}
+    
+from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse
+
+@app.get("/vnpay-return")
+def vnpay_return(request: Request):
+    logging.info("[✅ VNPay RETURN ĐÃ ĐƯỢC GỌI!]")
+    query_params = request.query_params
+    vnp_data = {key: query_params.get(key) for key in query_params.keys() if key.startswith("vnp_")}
+    vnp_secure_hash = vnp_data.pop("vnp_SecureHash", None)
+    vnp_data.pop("vnp_SecureHashType", None)
+
+    # Tính lại hash
+    sorted_params = sorted(vnp_data.items())
+    hash_string = '&'.join([f"{k}={quote_plus(str(v))}" for k, v in sorted_params])
+
+    recomputed_hash = hmac.new(VNP_HASH_SECRET.encode('utf-8'), hash_string.encode('utf-8'), hashlib.sha512).hexdigest()
+
+    if recomputed_hash.lower() != (vnp_secure_hash or "").lower():
+        logging.error(f"Chữ ký không hợp lệ! Data: {hash_string}")
+        return {"code": "97", "message": "Chữ ký không hợp lệ"}
+
+    ma_don_hang = vnp_data.get("vnp_TxnRef")
+    vnp_response_code = vnp_data.get("vnp_ResponseCode")
+    vnp_transaction_no = vnp_data.get("vnp_TransactionNo")
+    thoi_gian_tt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    new_status = "da_thanh_toan" if vnp_response_code == "00" else "that_bai"
+
+    conn = db.connect_to_database()
+    cursor = conn.cursor(dictionary=True)
+
+    # Cập nhật trạng thái đơn hàng
+    cursor.execute("""
+        UPDATE DonHang 
+        SET trang_thai_thanh_toan = %s, ma_giao_dich_vnpay = %s, thoi_gian_thanh_toan = %s 
+        WHERE ma_don_hang = %s
+    """, (new_status, vnp_transaction_no, thoi_gian_tt, ma_don_hang))
+
+    # Nếu thanh toán thành công → gửi email
+    if vnp_response_code == "00":
+        # Lấy thông tin đơn hàng
+        cursor.execute("""
+            SELECT d.ma_nguoi_dung, d.ten_nguoi_nhan, d.tong_tien, d.voucher_order_id, d.voucher_ship_id,
+                d.phuong_thuc_id, d.dia_chi_giao_hang AS dia_chi, d.so_dien_thoai, n.email
+            FROM DonHang d
+            JOIN NguoiDung n ON d.ma_nguoi_dung = n.ma_nguoi_dung
+            WHERE d.ma_don_hang = %s
+        """, (ma_don_hang,))
+
+        result = cursor.fetchone()
+
+        if result:
+            phi_vc = 0
+            giam_gia_order = 0
+            giam_gia_ship = 0
+
+            # Lấy phí vận chuyển
+            if result["phuong_thuc_id"]:
+                cursor.execute("SELECT chi_phi FROM PhuongThucVanChuyen WHERE id = %s", (result["phuong_thuc_id"],))
+                vc = cursor.fetchone()
+                if vc:
+                    phi_vc = int(vc["chi_phi"])
+
+            # Giảm giá đơn hàng
+            if result["voucher_order_id"]:
+                cursor.execute("SELECT * FROM voucher WHERE id = %s", (result["voucher_order_id"],))
+                voucher = cursor.fetchone()
+                if voucher:
+                    cursor.execute("""
+                        SELECT SUM(c.so_luong * c.gia) AS tong
+                        FROM ChiTietDonHang c
+                        WHERE c.ma_don_hang = %s
+                    """, (ma_don_hang,))
+                    tong_tien_san_pham = cursor.fetchone()["tong"] or 0
+                    if tong_tien_san_pham >= voucher["dieu_kien_ap_dung"]:
+                        if voucher["kieu_giam"] == "phan_tram":
+                            giam_gia_order = int(tong_tien_san_pham * voucher["gia_tri"] / 100)
+                        else:
+                            giam_gia_order = int(voucher["gia_tri"])
+
+            # Giảm giá vận chuyển
+            if result["voucher_ship_id"]:
+                cursor.execute("SELECT * FROM voucher WHERE id = %s", (result["voucher_ship_id"],))
+                voucher = cursor.fetchone()
+                if voucher:
+                    if phi_vc >= voucher["dieu_kien_ap_dung"]:
+                        if voucher["kieu_giam"] == "phan_tram":
+                            giam_gia_ship = int(phi_vc * voucher["gia_tri"] / 100)
+                        else:
+                            giam_gia_ship = int(voucher["gia_tri"])
+                        giam_gia_ship = min(giam_gia_ship, phi_vc)
+
+            # Lấy chi tiết sản phẩm
+            cursor.execute("""
+                SELECT s.ten_san_pham, c.so_luong, c.gia, 
+                       IFNULL(ms.ten_mau, '') AS mau_sac, 
+                       IFNULL(b.kich_thuoc, '') AS kich_thuoc
+                FROM ChiTietDonHang c
+                JOIN BienTheSanPham b ON c.ma_bien_the = b.ma_bien_the
+                LEFT JOIN MauSac ms ON b.ma_mau = ms.ma_mau
+                JOIN SanPham s ON b.ma_san_pham = s.ma_san_pham
+                WHERE c.ma_don_hang = %s
+            """, (ma_don_hang,))
+            san_pham = cursor.fetchall()
+
+            # Gửi email
+            if result["email"]:
+                try:
+                    send_order_email(
+                        to_email=result["email"],
+                        customer_name=result["ten_nguoi_nhan"],
+                        order_id=ma_don_hang,
+                        total_amount=result["tong_tien"],
+                        dia_chi=result.get("dia_chi", ""),
+                        sdt=result["so_dien_thoai"],
+                        san_pham=san_pham,
+                        giam_gia_order=giam_gia_order,
+                        giam_gia_ship=giam_gia_ship,
+                        phi_ship=phi_vc
+                    )
+                except Exception as mail_err:
+                    logging.error(f"[EMAIL ERROR] {mail_err}")
+
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    message = "Giao dịch thanh toán thành công." if vnp_response_code == "00" else f"Giao dịch không thành công (mã lỗi {vnp_response_code})."
+  
+
+    return HTMLResponse(content=f"""
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+        <meta charset="UTF-8">
+        <title>Giao dịch thành công</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{
+                font-family: 'Segoe UI', sans-serif;
+                background-color: #f5f5f5;
+                color: #333;
+                text-align: center;
+                padding-top: 80px;
+            }}
+            .container {{
+                background-color: white;
+                margin: auto;
+                padding: 30px;
+                max-width: 400px;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }}
+            h1 {{
+                font-size: 26px;
+                color: #4CAF50;
+                margin-bottom: 10px;
+            }}
+            p {{
+                font-size: 16px;
+                margin: 10px 0;
+            }}
+            a {{
+                color: #ffffff;
+                background-color: #4CAF50;
+                padding: 12px 24px;
+                border-radius: 8px;
+                text-decoration: none;
+                display: inline-block;
+                margin-top: 20px;
+            }}
+            a:hover {{
+                background-color: #43a047;
+            }}
+        </style>
+        <script type="text/javascript">
+            setTimeout(function() {{
+                window.location = "myapp://vnpay_callback?vnp_ResponseCode={vnp_response_code}&vnp_TxnRef={ma_don_hang}";
+            }}, 500);
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎉 Giao dịch thành công!</h1>
+            <p>Cảm ơn bạn đã thanh toán đơn hàng <strong>{ma_don_hang}</strong>.</p>
+            <p>Đang quay lại ứng dụng...</p>
+            <a href="myapp://vnpay_callback?vnp_ResponseCode={vnp_response_code}&vnp_TxnRef={ma_don_hang}">
+                👉 Nhấn vào đây nếu không tự chuyển
+            </a>
+        </div>
+    </body>
+    </html>
+    """)
+
+
+@app.post("/tao-don-vnpay")
+def tao_don_vnpay(request: DonHangRequest):
+    try:
+        conn = db.connect_to_database()
+        cursor = conn.cursor(dictionary=True)
+
+        tong_tien_san_pham = 0
+        for item in request.san_pham:
+            cursor.execute("""
+                SELECT s.gia FROM BienTheSanPham b
+                JOIN SanPham s ON b.ma_san_pham = s.ma_san_pham
+                WHERE b.ma_bien_the = %s
+            """, (item.ma_bien_the,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Không tìm thấy biến thể")
+            tong_tien_san_pham += row['gia'] * item.so_luong
+
+        cursor.execute("SELECT chi_phi FROM PhuongThucVanChuyen WHERE id = %s", (request.phuong_thuc_id,))
+        vc = cursor.fetchone()
+        if not vc:
+            raise HTTPException(status_code=400, detail="Không tìm thấy phương thức vận chuyển")
+        phi_ship = vc["chi_phi"]
+
+        giam_gia_order = 0
+        if request.voucher_order_id:
+            cursor.execute("SELECT * FROM voucher WHERE id = %s", (request.voucher_order_id,))
+            voucher = cursor.fetchone()
+            if voucher:
+                if tong_tien_san_pham >= voucher["dieu_kien_ap_dung"]:
+                    if voucher["kieu_giam"] == "phan_tram":
+                        giam_gia_order = int(tong_tien_san_pham * voucher["gia_tri"] / 100)
+                    else:
+                        giam_gia_order = int(voucher["gia_tri"])
+                else:
+                    raise HTTPException(status_code=400, detail="Không đủ điều kiện áp dụng voucher đơn hàng")
+
+        giam_gia_ship = 0
+        if request.voucher_ship_id:
+            cursor.execute("SELECT * FROM voucher WHERE id = %s", (request.voucher_ship_id,))
+            voucher = cursor.fetchone()
+            if voucher:
+                if phi_ship >= voucher["dieu_kien_ap_dung"]:
+                    if voucher["kieu_giam"] == "phan_tram":
+                        giam_gia_ship = int(phi_ship * voucher["gia_tri"] / 100)
+                    else:
+                        giam_gia_ship = int(voucher["gia_tri"])
+                    giam_gia_ship = min(giam_gia_ship, phi_ship)
+                else:
+                    raise HTTPException(status_code=400, detail="Không đủ điều kiện áp dụng voucher vận chuyển")
+
+        tong_thanh_toan = max(tong_tien_san_pham - giam_gia_order + phi_ship - giam_gia_ship, 0)
+
+        cursor.execute("""
+            INSERT INTO DonHang (
+                ma_nguoi_dung, ten_nguoi_nhan, so_dien_thoai, dia_chi_giao_hang,
+                tong_tien, trang_thai, trang_thai_thanh_toan, hinh_thuc_thanh_toan, ngay_tao,
+                voucher_order_id, voucher_ship_id, phuong_thuc_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)
+        """, (
+            request.ma_nguoi_dung,
+            request.ten_nguoi_nhan,
+            request.so_dien_thoai,
+            request.dia_chi_giao_hang,
+            tong_thanh_toan,
+            "Chờ xác nhận",
+            "chua_thanh_toan",
+            "vnpay",  
+            request.voucher_order_id,
+            request.voucher_ship_id,
+            request.phuong_thuc_id
+        ))
+
+
+        id_don_hang = cursor.lastrowid
+
+        today_str = datetime.now().strftime("%d%m%Y")
+        cursor.execute("SELECT COUNT(*) AS so_don_trong_ngay FROM DonHang WHERE DATE(ngay_tao) = CURDATE()")
+        count = cursor.fetchone()["so_don_trong_ngay"]
+        ma_don_hang = f"DH{today_str}-{count}"
+        cursor.execute("UPDATE DonHang SET ma_don_hang = %s WHERE id = %s", (ma_don_hang, id_don_hang))
+
+        for item in request.san_pham:
+            cursor.execute("""
+                SELECT s.gia FROM BienTheSanPham b
+                JOIN SanPham s ON b.ma_san_pham = s.ma_san_pham
+                WHERE b.ma_bien_the = %s
+            """, (item.ma_bien_the,))
+            gia = cursor.fetchone()['gia']
+
+            cursor.execute("""
+                INSERT INTO ChiTietDonHang (ma_don_hang, ma_bien_the, so_luong, gia)
+                VALUES (%s, %s, %s, %s)
+            """, (ma_don_hang, item.ma_bien_the, item.so_luong, gia))
+
+            cursor.execute("SELECT so_luong_ton FROM BienTheSanPham WHERE ma_bien_the = %s", (item.ma_bien_the,))
+            row = cursor.fetchone()
+            if row is None or row["so_luong_ton"] < item.so_luong:
+                raise HTTPException(status_code=400, detail="Sản phẩm không đủ hàng trong kho")
+
+            cursor.execute("UPDATE BienTheSanPham SET so_luong_ton = so_luong_ton - %s WHERE ma_bien_the = %s",
+                           (item.so_luong, item.ma_bien_the))
+
+            cursor.execute("DELETE FROM GioHang WHERE ma_gio_hang = %s", (item.ma_gio_hang,))
+
+        if request.voucher_order_id:
+            cursor.execute("UPDATE voucher SET so_luong = so_luong - 1 WHERE id = %s", (request.voucher_order_id,))
+            cursor.execute("""
+                UPDATE NguoiDungVoucher SET da_su_dung = TRUE, ngay_su_dung = NOW()
+                WHERE voucher_id = %s AND ma_nguoi_dung = %s
+            """, (request.voucher_order_id, request.ma_nguoi_dung))
+
+        if request.voucher_ship_id:
+            cursor.execute("UPDATE voucher SET so_luong = so_luong - 1 WHERE id = %s", (request.voucher_ship_id,))
+            cursor.execute("""
+                UPDATE NguoiDungVoucher SET da_su_dung = TRUE, ngay_su_dung = NOW()
+                WHERE voucher_id = %s AND ma_nguoi_dung = %s
+            """, (request.voucher_ship_id, request.ma_nguoi_dung))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {
+            "message": "Tạo đơn hàng VNPay thành công",
+            "ma_don_hang": ma_don_hang,
+            "id": id_don_hang,
+            "tong_tien": tong_thanh_toan
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
